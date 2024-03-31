@@ -44,6 +44,24 @@ def close_positions(trader, ticker):
         trader.submit_order(order)
         sleep(1)
 
+def get_bids_asks_medium(lst):
+    prices = list(map(lambda x: x.price, lst))
+    sizes = list(map(lambda x: x.size, lst))
+    midpoint = sum(sizes)//2
+    t=0
+    for i in zip(sizes,prices):
+        t+=i[0]
+        if midpoint <= t:
+            return i[1] 
+    return 0
+
+def get_order_book_medium(trader: shift.Trader, symbol: str):
+    bids = trader.get_order_book(symbol, shift.OrderBookType.GLOBAL_BID, max_level=99)
+    asks = trader.get_order_book(symbol, shift.OrderBookType.GLOBAL_ASK, max_level=99)
+    bidm = get_bids_asks_medium(bids)
+    askm = get_bids_asks_medium(asks)
+    return((bidm,asks))
+
 
 def strategy(trader: shift.Trader, ticker: str, endtime):
     # NOTE: Unlike the following sample strategy, it is highly reccomended that you track and account for your buying power and
@@ -57,41 +75,125 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
     order_size = 5  # NOTE: this is 5 lots which is 500 shares.
 
     # strategy variables
-    best_price = trader.get_best_price(ticker)
-    best_bid = best_price.get_bid_price()
-    best_ask = best_price.get_ask_price()
-    previous_price = (best_bid + best_ask) / 2
+    previous_price = 0
+    previous_ask = 0
+    previous_bid = 0
 
+    #buy wait adjust
+    holding = 0
+    selling = 0
+
+    limit_buy = None
+
+    sell_cycle = 0
+
+    stage = 'buy'
+    
     while (trader.get_last_trade_time() < endtime):
-        # cancel unfilled orders from previous time-step
-        cancel_orders(trader, ticker)
-
-        # get necessary data
         best_price = trader.get_best_price(ticker)
         best_bid = best_price.get_bid_price()
         best_ask = best_price.get_ask_price()
         midprice = (best_bid + best_ask) / 2
 
-        # place order
-        if (midprice > previous_price):  # price has increased since last timestep
-            # we predict price will continue to go up
+        if stage == 'buy':
+            # reset portfolio
+            stock = trader.get_portfolio_item(ticker)
+            print(
+                "%6s\t\t%6d\t%9.2f\t%7.2f\t\t%26s"
+                % (
+                    stock.get_symbol(),
+                    stock.get_shares(),
+                    stock.get_price(),
+                    stock.get_realized_pl(),
+                    stock.get_timestamp(),
+                )
+            )
             order = shift.Order(
-                shift.Order.Type.MARKET_BUY, ticker, order_size)
+                shift.Order.Type.MARKET_SELL, ticker, stock.get_shares()//100)
             trader.submit_order(order)
-        elif (midprice < previous_price):  # price has decreased since last timestep
-            # we predict price will continue to go down
-            order = shift.Order(
-                shift.Order.Type.MARKET_SELL, ticker, order_size)
-            trader.submit_order(order)
+            
+            
+            cancel_orders(trader, ticker)
+            
+            limit_buy = shift.Order(shift.Order.Type.LIMIT_BUY, ticker, order_size, best_ask)
+            trader.submit_order(limit_buy)
+            
+            holding == 0
+            sell_cycle = 0
+            stage = 'sell'            
+        elif stage == 'sell':
+            print("sell:", sell_cycle)
+            for order in trader.get_waiting_list():
+                print(
+                    "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
+                    % (
+                        order.symbol,
+                        order.type,
+                        order.executed_price,
+                        order.size,
+                        order.executed_size,
+                        order.id,
+                        order.status,
+                        order.timestamp,
+                    )
+                )               
+            for order in trader.get_executed_orders(limit_buy.id):
+                print(
+                    "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
+                    % (
+                        order.symbol,
+                        order.type,
+                        order.executed_price,
+                        order.size,
+                        order.executed_size,
+                        order.id,
+                        order.status,
+                        order.timestamp,
+                    )
+                )
+                c =+ order.executed_size
+                if c<= holding:
+                    continue
+                order = shift.Order(shift.Order.Type.LIMIT_SELL, ticker, order.executed_size, best_bid)
+                trader.submit_order(order)
+                
+            sell_cycle += 1
 
-            # NOTE: If you place a sell order larger than your current long position, it will result in a short sale, which
-            # requires buying power both for the initial short_sale and to close your short position.For example, if we short
-            # sell 1 lot of a stock trading at $100, it will consume 100*100 = $10000 of our buying power. Then, in order to
-            # close that position, assuming the price has not changed, it will require another $10000 of buying power, after
-            # which our pre short-sale buying power will be restored, minus any transaction costs. Therefore, it requires
-            # double the buying power to open and close a short position than a long position.
+            if sell_cycle>10:
+                stage = 'buy'
 
-        previous_price = midprice
+        # cancel unfilled orders from previous time-step
+
+        # get necessary data
+        
+##        best_price = trader.get_best_price(ticker)
+##        best_bid = best_price.get_bid_price()
+##        best_ask = best_price.get_ask_price()
+##        midprice = (best_bid + best_ask) / 2
+##
+##        medium_ask = get_order_book_medium(trader, ticker)
+##        medium_ask = medium_ask[1]
+##        medium_bid = medium_ask[0]
+##
+##        #print("{} {:8.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f}".format(ticker, previous_ask, previous_bid, medium_ask, medium_bid, previous_price, midprice))
+##        #print("{} {} {} {} {} {} {}".format(ticker, previous_ask, previous_bid, medium_ask, medium_bid, previous_price, midprice))
+##
+##        shift.Order.Type.MARKET_BUY, ticker, order_size)
+##        
+##        # place order
+##        if (midprice > previous_price):  # price has increased since last timestep
+##            # we predict price will continue to go up
+##            order = shift.Order(
+##                shift.Order.Type.MARKET_BUY, ticker, order_size)
+##            trader.submit_order(order)
+##        elif (midprice < previous_price):  # price has decreased since last timestep
+##            # we predict price will continue to go down
+##            order = shift.Order(
+##                shift.Order.Type.MARKET_SELL, ticker, order_size)
+##            trader.submit_order(order)
+
+
+        
         sleep(check_freq)
 
     # cancel unfilled orders and close positions for this ticker
@@ -101,6 +203,31 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
     print(
         f"total profits/losses for {ticker}: {trader.get_portfolio_item(ticker).get_realized_pl() - initial_pl}")
 
+
+def print_current_portfolio():
+    print("Buying Power\tTotal Shares\tTotal P&L\tTimestamp")
+    print(
+            "%12.2f\t%12d\t%9.2f\t%26s"
+            % (
+                    trader.get_portfolio_summary().get_total_bp(),
+                    trader.get_portfolio_summary().get_total_shares(),
+                    trader.get_portfolio_summary().get_total_realized_pl(),
+                    trader.get_portfolio_summary().get_timestamp(),
+            )
+    )
+def print_portfolio_items():
+    print("Symbol\t\tShares\t\tPrice\t\tP&L\t\tTimestamp")
+    for item in trader.get_portfolio_items().values():
+        print(
+            "%6s\t\t%6d\t%9.2f\t%7.2f\t\t%26s"
+            % (
+                item.get_symbol(),
+                item.get_shares(),
+                item.get_price(),
+                item.get_realized_pl(),
+                item.get_timestamp(),
+            )
+        )
 
 def main(trader):
     # keeps track of times for the simulation
@@ -118,10 +245,13 @@ def main(trader):
     # we track our overall initial profits/losses value to see how our strategy affects it
     initial_pl = trader.get_portfolio_summary().get_total_realized_pl()
 
+    print_current_portfolio()
+    print_portfolio_items()
+ 
     threads = []
 
     # in this example, we simultaneously and independantly run our trading alogirthm on two tickers
-    tickers = ["AAPL", "MSFT"]
+    tickers = ["AAPL"]
 
     print("START")
 
