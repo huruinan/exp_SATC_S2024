@@ -7,6 +7,16 @@ from threading import Thread
 # NOTE: for documentation on the different classes and methods used to interact with the SHIFT system, 
 # see: https://github.com/hanlonlab/shift-python/wiki
 
+def cancal_all_orders(trader, ticket):
+    # cancel all the remaining orders
+    for order in trader.get_waiting_list():
+        trader.submit_cancellation(order)
+        sleep(1)  # the order cancellation needs a little time to go through
+    for order in trader.get_submitted_orders():
+        trader.submit_cancellation(order)
+        sleep(1)  # the order cancellation needs a little time to go through
+
+
 def cancel_orders(trader, ticker):
     # cancel all the remaining orders
     for order in trader.get_waiting_list():
@@ -63,6 +73,56 @@ def get_order_book_medium(trader: shift.Trader, symbol: str):
     return((bidm,asks))
 
 
+def print_portfolio(tader: shift.Trader, ticker: str):
+    stock = trader.get_portfolio_item(ticker)
+    print(
+        "%6s\t\t%6d\t%9.2f\t%7.2f\t\t%26s"
+        % (
+            stock.get_symbol(),
+            stock.get_shares(),
+            stock.get_price(),
+            stock.get_realized_pl(),
+            stock.get_timestamp(),
+        )
+    )
+
+def print_wait_orders(tader: shift.Trader, ticker: str):
+    print(
+        "Symbol\tType\t  Price\t\tSize\tExecuted\tID\t\t\t\t\t\t\t\t\t\t\t\t\t\t Status\t\tTimestamp"
+    )
+    for order in trader.get_waiting_list():
+        print(
+            "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
+            % (
+                order.symbol,
+                order.type,
+                order.executed_price,
+                order.size,
+                order.executed_size,
+                order.id,
+                order.status,
+                order.timestamp,
+            )
+        )
+def print_submited_orders(tader: shift.Trader, ticker: str):
+    print("submitted orders")
+    print(
+        "Symbol\tType\t  Price\t\tSize\tExecuted\tID\t\t\t\t\t\t\t\t\t\t\t\t\t\t Status\t\tTimestamp"
+    )
+    for order in trader.get_submitted_orders():
+        print(
+            "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
+            % (
+                order.symbol,
+                order.type,
+                order.executed_price,
+                order.size,
+                order.executed_size,
+                order.id,
+                order.status,
+                order.timestamp,
+            )
+        )
 def strategy(trader: shift.Trader, ticker: str, endtime):
     # NOTE: Unlike the following sample strategy, it is highly reccomended that you track and account for your buying power and
     # position sizes throughout your algorithm to ensure both that have adequite captial to trade throughout the simulation and
@@ -79,10 +139,6 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
     previous_ask = 0
     previous_bid = 0
 
-    #buy wait adjust
-    holding = 0
-    selling = 0
-
     limit_buy = None
 
     sell_cycle = 0
@@ -97,46 +153,30 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
 
         if stage == 'buy':
             # reset portfolio
+            print("=============buying orders===============")
             stock = trader.get_portfolio_item(ticker)
-            print(
-                "%6s\t\t%6d\t%9.2f\t%7.2f\t\t%26s"
-                % (
-                    stock.get_symbol(),
-                    stock.get_shares(),
-                    stock.get_price(),
-                    stock.get_realized_pl(),
-                    stock.get_timestamp(),
-                )
-            )
-            order = shift.Order(
-                shift.Order.Type.MARKET_SELL, ticker, stock.get_shares()//100)
-            trader.submit_order(order)
-            
-            
+            share_left = stock.get_shares() 
+            if share_left > 0:
+                order = shift.Order(
+                    shift.Order.Type.MARKET_SELL, ticker, stock.get_shares()//100)
+                trader.submit_order(order)
+                print("there are {} slot left at {}, likely loss".format(share_left, stock.get_price()))
+
             cancel_orders(trader, ticker)
             
-            limit_buy = shift.Order(shift.Order.Type.LIMIT_BUY, ticker, order_size, best_ask)
+            limit_buy = shift.Order(shift.Order.Type.LIMIT_BUY, ticker, order_size, best_bid)
             trader.submit_order(limit_buy)
             
-            holding == 0
+            totalSoldOrder = 0
             sell_cycle = 0
-            stage = 'sell'            
+            stage = 'sell'
+    
         elif stage == 'sell':
-            print("sell:", sell_cycle)
-            for order in trader.get_waiting_list():
-                print(
-                    "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
-                    % (
-                        order.symbol,
-                        order.type,
-                        order.executed_price,
-                        order.size,
-                        order.executed_size,
-                        order.id,
-                        order.status,
-                        order.timestamp,
-                    )
-                )               
+            print("=============selling orders=============== {}".format(sell_cycle))
+
+            totalExecutedOrder = 0
+
+            print(limit_buy)
             for order in trader.get_executed_orders(limit_buy.id):
                 print(
                     "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
@@ -151,15 +191,17 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
                         order.timestamp,
                     )
                 )
-                c =+ order.executed_size
-                if c<= holding:
-                    continue
-                order = shift.Order(shift.Order.Type.LIMIT_SELL, ticker, order.executed_size, best_bid)
+                totalExecutedOrder+=order.executed_size
+            
+            if totalSoldOrder<totalExecutedOrder:
+                slots = totalExecutedOrder-totalSoldOrder
+                print("selling {}x {} at {} {}".format(ticker, slots, best_bid, totalSoldOrder))
+                order = shift.Order(shift.Order.Type.LIMIT_SELL, ticker, slots, best_ask)
                 trader.submit_order(order)
-                
+                totalSoldOrder += slots
             sell_cycle += 1
 
-            if sell_cycle>10:
+            if sell_cycle>=100 or order_size == totalSoldOrder:
                 stage = 'buy'
 
         # cancel unfilled orders from previous time-step
@@ -236,7 +278,7 @@ def main(trader):
     # start_time = datetime.combine(current, dt.time(9, 30, 0))
     # end_time = datetime.combine(current, dt.time(15, 50, 0))
     start_time = current
-    end_time = start_time + timedelta(minutes=1)
+    end_time = start_time + timedelta(hours=6)
 
     while trader.get_last_trade_time() < start_time:
         print("still waiting for market open")
@@ -251,8 +293,52 @@ def main(trader):
     threads = []
 
     # in this example, we simultaneously and independantly run our trading alogirthm on two tickers
-    tickers = ["AAPL"]
-
+##    tickers = [
+##        "AAPL",  # Apple Inc.
+##        "AMGN",  # Amgen Inc.
+##        "AXP",   # American Express Company
+##        "BA",    # Boeing Co.
+##        "CAT",   # Caterpillar Inc.
+##        "CRM",   # Salesforce Inc.
+##        "CSCO",  # Cisco Systems, Inc.
+##        "CVX",   # Chevron Corporation
+##        "DIS",   # The Walt Disney Company
+##        "DOW",   # Dow Inc.
+##        "GS",    # The Goldman Sachs Group, Inc.
+##        "HD",    # The Home Depot, Inc.
+##        "HON",   # Honeywell International Inc.
+##        "IBM",   # International Business Machines Corporation
+##        "INTC",  # Intel Corporation
+##        "JNJ",   # Johnson & Johnson
+##        "JPM",   # JPMorgan Chase & Co.
+##        "KO",    # The Coca-Cola Company
+##        "MCD",   # McDonald's Corp
+##        "MMM",   # 3M Company
+##        "MRK",   # Merck & Co., Inc.
+##        "MSFT",  # Microsoft Corporation
+##        "NKE",   # NIKE, Inc.
+##        "PG",    # The Procter & Gamble Company
+##        "TRV",   # The Travelers Companies, Inc.
+##        "UNH",   # UnitedHealth Group Incorporated
+##        "V",     # Visa Inc.
+##        "VZ",    # Verizon Communications Inc.
+##        "WBA",   # Walgreens Boots Alliance, Inc.
+##        "WMT"    # Walmart Inc.
+##    ]
+    tickers = [
+        "BA",
+        "CAT",
+        "KO",
+        "MRK",
+        "PG",
+        "WMT",
+        "MMM",
+        "GS",
+        "INTC",
+        "UNH",
+        "VZ",
+        "V"
+    ]
     print("START")
 
     for ticker in tickers:
@@ -277,9 +363,12 @@ def main(trader):
     # make sure all remaining orders have been cancelled and all positions have been closed
     for ticker in tickers:
         cancel_orders(trader, ticker)
+        print("to run close postion")
         close_positions(trader, ticker)
-
+    
     print("END")
+    for ticker in tickers:
+        print_portfolio(trader, ticker)
     print(f"final bp: {trader.get_portfolio_summary().get_total_bp()}")
     print(
         f"final profits/losses: {trader.get_portfolio_summary().get_total_realized_pl() - initial_pl}")
@@ -291,5 +380,5 @@ if __name__ == '__main__':
         sleep(1)
         trader.sub_all_order_book()
         sleep(1)
-
+        cancal_all_orders(trader, "")
         main(trader)
