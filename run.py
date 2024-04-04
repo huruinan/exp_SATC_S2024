@@ -123,7 +123,7 @@ def print_submited_orders(tader: shift.Trader, ticker: str):
                 order.timestamp,
             )
         )
-def strategy(trader: shift.Trader, ticker: str, endtime):
+def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
     # NOTE: Unlike the following sample strategy, it is highly reccomended that you track and account for your buying power and
     # position sizes throughout your algorithm to ensure both that have adequite captial to trade throughout the simulation and
     # that you are able to close your position at the end of the strategy without incurring major losses.
@@ -139,10 +139,12 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
     previous_ask = 0
     previous_bid = 0
 
-    limit_buy = None
+    limit_buys = []
 
     sell_cycle = 0
 
+    totalSoldOrder = 0
+    
     stage = 'buy'
     
     while (trader.get_last_trade_time() < endtime):
@@ -151,6 +153,8 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
         best_ask = best_price.get_ask_price()
         midprice = (best_bid + best_ask) / 2
 
+        bid_spread = (best_ask - best_bid)
+        
         if stage == 'buy':
             # reset portfolio
             print("=============buying orders===============")
@@ -163,35 +167,38 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
                 print("there are {} slot left at {}, likely loss".format(share_left, stock.get_price()))
 
             cancel_orders(trader, ticker)
-            
-            limit_buy = shift.Order(shift.Order.Type.LIMIT_BUY, ticker, order_size, best_bid)
-            trader.submit_order(limit_buy)
+            limit_buys = []
+            for i in range(order_size):
+                limit_order_price = best_bid - i*bid_spread/10
+                print("limit_order_price: ", limit_order_price)
+                limit_buys.append(shift.Order(shift.Order.Type.LIMIT_BUY, ticker, 1, limit_order_price))
+                trader.submit_order(limit_buys[-1])
             
             totalSoldOrder = 0
             sell_cycle = 0
             stage = 'sell'
     
         elif stage == 'sell':
-            print("=============selling orders=============== {}".format(sell_cycle))
+            print("=============selling orders, b {} a {}=============== {}".format(best_bid, best_ask, sell_cycle))
 
             totalExecutedOrder = 0
-
-            print(limit_buy)
-            for order in trader.get_executed_orders(limit_buy.id):
-                print(
-                    "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
-                    % (
-                        order.symbol,
-                        order.type,
-                        order.executed_price,
-                        order.size,
-                        order.executed_size,
-                        order.id,
-                        order.status,
-                        order.timestamp,
+            for limit_buy in limit_buys:
+                for order in trader.get_executed_orders(limit_buy.id):
+                    print(
+                        "%6s\t%16s\t%7.2f\t\t%4d\t\t%4d\t%36s\t%23s\t\t%26s"
+                        % (
+                            order.symbol,
+                            order.type,
+                            order.executed_price,
+                            order.size,
+                            order.executed_size,
+                            order.id,
+                            order.status,
+                            order.timestamp,
+                        )
                     )
-                )
-                totalExecutedOrder+=order.executed_size
+                    totalExecutedOrder+=order.executed_size
+            print(totalSoldOrder, totalExecutedOrder)
             
             if totalSoldOrder<totalExecutedOrder:
                 slots = totalExecutedOrder-totalSoldOrder
@@ -201,7 +208,7 @@ def strategy(trader: shift.Trader, ticker: str, endtime):
                 totalSoldOrder += slots
             sell_cycle += 1
 
-            if sell_cycle>=100 or order_size == totalSoldOrder:
+            if sell_cycle>=10 or order_size == totalSoldOrder:
                 stage = 'buy'
 
         # cancel unfilled orders from previous time-step
@@ -271,7 +278,7 @@ def print_portfolio_items():
             )
         )
 
-def main(trader):
+def main(trader, mode = "prod"):
     # keeps track of times for the simulation
     check_frequency = 60
     current = trader.get_last_trade_time()
@@ -325,20 +332,25 @@ def main(trader):
 ##        "WBA",   # Walgreens Boots Alliance, Inc.
 ##        "WMT"    # Walmart Inc.
 ##    ]
-    tickers = [
-        "BA",
-        "CAT",
-        "KO",
-        "MRK",
-        "PG",
-        "WMT",
-        "MMM",
-        "GS",
-        "INTC",
-        "UNH",
-        "VZ",
-        "V"
-    ]
+    if mode == "prod":
+        tickers = [
+            "BA",
+            "CAT",
+            "KO",
+            "MRK",
+            "PG",
+            "WMT",
+            "MMM",
+            "GS",
+            "INTC",
+            "UNH",
+            "VZ",
+            "V"
+        ]
+    else:
+        tickers = [
+            "BA"
+        ]        
     print("START")
 
     for ticker in tickers:
@@ -375,10 +387,10 @@ def main(trader):
 
 
 if __name__ == '__main__':
-    with shift.Trader("exp_test000") as trader:
+    with shift.Trader("exp") as trader:
         trader.connect("initiator.cfg", "AywcIs6l")
         sleep(1)
         trader.sub_all_order_book()
         sleep(1)
         cancal_all_orders(trader, "")
-        main(trader)
+        main(trader, mode="prod")
