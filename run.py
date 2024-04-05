@@ -169,7 +169,7 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
             cancel_orders(trader, ticker)
             limit_buys = []
             for i in range(order_size):
-                limit_order_price = best_bid - i*bid_spread/10
+                limit_order_price = best_bid + i*bid_spread/10
                 print("limit_order_price: ", limit_order_price)
                 limit_buys.append(shift.Order(shift.Order.Type.LIMIT_BUY, ticker, 1, limit_order_price))
                 trader.submit_order(limit_buys[-1])
