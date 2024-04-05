@@ -3,6 +3,7 @@ from time import sleep
 from datetime import datetime, timedelta
 import datetime as dt
 from threading import Thread
+from collections import deque
 
 # NOTE: for documentation on the different classes and methods used to interact with the SHIFT system, 
 # see: https://github.com/hanlonlab/shift-python/wiki
@@ -146,7 +147,7 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
     totalSoldOrder = 0
     
     stage = 'buy'
-    
+    price_history = deque(maxlen=10)  
     while (trader.get_last_trade_time() < endtime):
         best_price = trader.get_best_price(ticker)
         best_bid = best_price.get_bid_price()
@@ -154,8 +155,15 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
         midprice = (best_bid + best_ask) / 2
 
         bid_spread = (best_ask - best_bid)
-        
+        price_history.append(midprice)
         if stage == 'buy':
+            min_p = 100000
+            min_p_index = -1
+            for i,v in enumerate(price_history):
+                if v<min_p:
+                    min_p = v
+                    min_p_index = i
+                
             # reset portfolio
             print("=============buying orders===============")
             stock = trader.get_portfolio_item(ticker)
@@ -167,6 +175,10 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
                 print("there are {} slot left at {}, likely loss".format(share_left, stock.get_price()))
 
             cancel_orders(trader, ticker)
+            print(price_history, min_p, min_p_index)
+            if min_p_index >5:
+                continue
+            
             limit_buys = []
             for i in range(order_size):
                 limit_order_price = best_bid + i*bid_spread/10
@@ -202,7 +214,7 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
             
             if totalSoldOrder<totalExecutedOrder:
                 slots = totalExecutedOrder-totalSoldOrder
-                print("selling {}x {} at {} {}".format(ticker, slots, best_bid, totalSoldOrder))
+                print("selling {}x {} at {} {}".format(ticker, slots, best_ask, totalSoldOrder))
                 order = shift.Order(shift.Order.Type.LIMIT_SELL, ticker, slots, best_ask)
                 trader.submit_order(order)
                 totalSoldOrder += slots
@@ -393,4 +405,4 @@ if __name__ == '__main__':
         trader.sub_all_order_book()
         sleep(1)
         cancal_all_orders(trader, "")
-        main(trader, mode="prod")
+        main(trader, mode="test")
