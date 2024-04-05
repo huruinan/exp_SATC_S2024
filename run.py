@@ -405,4 +405,4 @@ if __name__ == '__main__':
         trader.sub_all_order_book()
         sleep(1)
         cancal_all_orders(trader, "")
-        main(trader, mode="test")
+        main(trader, mode="prod")
