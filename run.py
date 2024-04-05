@@ -177,6 +177,7 @@ def strategy(trader: shift.Trader, ticker: str, endtime, mode="prod"):
             cancel_orders(trader, ticker)
             print(price_history, min_p, min_p_index)
             if min_p_index >5:
+                sleep(check_freq)
                 continue
             
             limit_buys = []
