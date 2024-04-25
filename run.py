@@ -347,7 +347,7 @@ def main(trader, mode = "prod"):
 ##    ]
     if mode == "prod":
         tickers = [
-            "CS!",
+            "CS1",
         ]
     else:
         tickers = [
