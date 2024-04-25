@@ -347,18 +347,7 @@ def main(trader, mode = "prod"):
 ##    ]
     if mode == "prod":
         tickers = [
-            "BA",
-            "CAT",
-            "KO",
-            "MRK",
-            "PG",
-            "WMT",
-            "MMM",
-            "GS",
-            "INTC",
-            "UNH",
-            "VZ",
-            "V"
+            "CS!",
         ]
     else:
         tickers = [
